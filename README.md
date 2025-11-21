@@ -1,4 +1,4 @@
-# PaperTrail (Working Title)
+# Kinetic
 ## The Systematic Research Engagement Platform
 
 > Transform passive reading into measurable progress. Track your research journey, engage with your lab, and discover what matters—without the noise.
