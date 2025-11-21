@@ -1,0 +1,576 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  BookOpen, 
+  Flame, 
+  Search, 
+  Bookmark, 
+  MessageSquare, 
+  Share2, 
+  MoreHorizontal, 
+  ChevronLeft, 
+  PenTool, 
+  Layers, 
+  CheckCircle, 
+  TrendingUp, 
+  Users, 
+  Activity, 
+  FileText,
+  Menu,
+  X,
+  Award
+} from 'lucide-react';
+
+// --- Mock Data Generators ---
+
+// Generate last 365 days of data for the heatmap
+const generateHeatmapData = () => {
+  const data = [];
+  const today = new Date();
+  for (let i = 364; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    
+    // Simulate random activity
+    const rand = Math.random();
+    let rp = 0;
+    let tier = 0;
+    
+    if (rand > 0.8) { rp = Math.floor(Math.random() * 30) + 10; tier = 3; } // Forest
+    else if (rand > 0.6) { rp = Math.floor(Math.random() * 15) + 5; tier = 2; } // Emerald
+    else if (rand > 0.4) { rp = Math.floor(Math.random() * 5) + 1; tier = 1; } // Mint
+    
+    data.push({ date: date.toISOString().split('T')[0], rp, tier });
+  }
+  return data;
+};
+
+const MOCK_PAPERS = [
+  {
+    id: 'p1',
+    title: 'Attention Is All You Need',
+    authors: 'Vaswani et al.',
+    venue: 'NeurIPS 2017',
+    abstract: 'We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.',
+    engagementScore: 0.95, // 95% predictor
+    comments: 124,
+    isSaved: false,
+    tags: ['Deep Learning', 'NLP'],
+    type: 'Trending Debate'
+  },
+  {
+    id: 'p2',
+    title: 'Deep Residual Learning for Image Recognition',
+    authors: 'He et al.',
+    venue: 'CVPR 2016',
+    abstract: 'Deep residual networks allowed us to train networks with depths that were previously impossible.',
+    engagementScore: 0.75,
+    comments: 45,
+    isSaved: true,
+    tags: ['Computer Vision', 'Architectures'],
+    type: 'Lab Pick'
+  },
+  {
+    id: 'p3',
+    title: 'Targeting BCL-2 with Venetoclax in Relapsed Chronic Lymphocytic Leukemia',
+    authors: 'Roberts et al.',
+    venue: 'NEJM 2016',
+    abstract: 'Venetoclax showed activity in patients with relapsed or refractory chronic lymphocytic leukemia.',
+    engagementScore: 0.40,
+    comments: 12,
+    isSaved: false,
+    tags: ['Oncology', 'Clinical Trial'],
+    type: 'New in Field'
+  },
+];
+
+const MOCK_EVIDENCE = [
+  { id: 1, type: 'supporting', text: 'Supports the claim that self-attention improves training speed (See Smith et al. 2018).', votes: 45 },
+  { id: 2, type: 'contextual', text: 'Builds upon the sequence-to-sequence models defined by Sutskever (2014).', votes: 23 },
+  { id: 3, type: 'conflicting', text: 'Recent work suggests RNNs may still outperform Transformers in specific low-data regimes.', votes: 12 },
+];
+
+// --- Components ---
+
+const Tooltip = ({ children, text }) => (
+  <div className="group relative flex items-center">
+    {children}
+    <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 z-50">
+      {text}
+    </span>
+  </div>
+);
+
+// 1. Research-Log Heatmap
+const Heatmap = ({ data }) => {
+  // Transform linear data into weeks (7x52 grid transposed)
+  // For simplicity in this prototype, we render a flex grid that wraps
+  const weeks = useMemo(() => {
+    const weeksArr = [];
+    let currentWeek = [];
+    data.forEach((day, index) => {
+      currentWeek.push(day);
+      if (currentWeek.length === 7 || index === data.length - 1) {
+        weeksArr.push(currentWeek);
+        currentWeek = [];
+      }
+    });
+    return weeksArr;
+  }, [data]);
+
+  const getColor = (tier) => {
+    switch (tier) {
+      case 1: return 'bg-emerald-200'; // Mint
+      case 2: return 'bg-emerald-400'; // Emerald
+      case 3: return 'bg-emerald-700'; // Forest
+      default: return 'bg-slate-100 dark:bg-slate-800'; // Empty
+    }
+  };
+
+  return (
+    <div className="w-full overflow-x-auto pb-4">
+      <div className="min-w-[600px]">
+        <div className="flex gap-1">
+          {weeks.map((week, wIdx) => (
+            <div key={wIdx} className="flex flex-col gap-1">
+              {week.map((day, dIdx) => (
+                <Tooltip key={dIdx} text={`${day.date}: ${day.rp} RP`}>
+                  <div 
+                    className={`w-3 h-3 rounded-sm ${getColor(day.tier)} transition-colors duration-300 hover:ring-2 ring-slate-400`}
+                  />
+                </Tooltip>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-end gap-2 mt-2 text-xs text-slate-500">
+          <span>Less</span>
+          <div className="w-3 h-3 bg-slate-100 dark:bg-slate-800 rounded-sm" />
+          <div className="w-3 h-3 bg-emerald-200 rounded-sm" />
+          <div className="w-3 h-3 bg-emerald-400 rounded-sm" />
+          <div className="w-3 h-3 bg-emerald-700 rounded-sm" />
+          <span>More</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// 2. Smart Feed Card
+const PaperCard = ({ paper, onOpen, onSave }) => {
+  return (
+    <article className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 hover:shadow-md transition-shadow cursor-pointer group" onClick={() => onOpen(paper)}>
+      <div className="flex justify-between items-start mb-2">
+        <div className="flex items-center gap-2">
+          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
+            paper.type === 'Trending Debate' ? 'bg-orange-100 text-orange-700' :
+            paper.type === 'Lab Pick' ? 'bg-purple-100 text-purple-700' :
+            'bg-blue-100 text-blue-700'
+          }`}>
+            {paper.type}
+          </span>
+          <span className="text-slate-400 text-xs">{paper.venue}</span>
+        </div>
+        <div className="flex gap-2">
+          <button 
+            onClick={(e) => { e.stopPropagation(); onSave(paper.id); }}
+            className={`p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${paper.isSaved ? 'text-emerald-500' : 'text-slate-400'}`}
+          >
+            <Bookmark size={18} fill={paper.isSaved ? "currentColor" : "none"} />
+          </button>
+        </div>
+      </div>
+      
+      <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-1 group-hover:text-emerald-600 transition-colors">
+        {paper.title}
+      </h3>
+      <p className="text-sm text-slate-500 mb-3">{paper.authors}</p>
+      <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 line-clamp-2">
+        {paper.abstract}
+      </p>
+
+      {/* Engagement Predictor Bar */}
+      <div className="space-y-1">
+        <div className="flex justify-between text-xs text-slate-500">
+          <div className="flex items-center gap-1">
+            <Activity size={12} />
+            <span>Engagement Velocity</span>
+          </div>
+          <span className="font-medium">{(paper.engagementScore * 100).toFixed(0)}%</span>
+        </div>
+        <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+          <div 
+            className={`h-full rounded-full ${
+              paper.engagementScore > 0.8 ? 'bg-orange-500' :
+              paper.engagementScore > 0.5 ? 'bg-emerald-500' : 'bg-blue-400'
+            }`}
+            style={{ width: `${paper.engagementScore * 100}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="flex gap-4 mt-4 text-xs text-slate-500">
+        <div className="flex items-center gap-1">
+          <MessageSquare size={14} />
+          <span>{paper.comments} comments</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Share2 size={14} />
+          <span>Share</span>
+        </div>
+      </div>
+    </article>
+  );
+};
+
+// 3. Intelligent Reader
+const Reader = ({ paper, onClose, onAnnotate }) => {
+  const [activeTab, setActiveTab] = useState('evidence');
+  
+  return (
+    <div className="fixed inset-0 z-50 bg-white dark:bg-slate-950 flex flex-col">
+      {/* Header */}
+      <header className="h-14 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 bg-white dark:bg-slate-950">
+        <div className="flex items-center gap-3">
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
+            <ChevronLeft size={20} />
+          </button>
+          <h2 className="font-bold truncate max-w-md">{paper.title}</h2>
+        </div>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={onAnnotate}
+            className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-sm font-medium transition-colors"
+          >
+            <PenTool size={16} />
+            <span>Highlight & Annotate (+5 RP)</span>
+          </button>
+          <div className="h-6 w-px bg-slate-200 dark:bg-slate-700" />
+          <button className="p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md">
+            <MoreHorizontal size={20} />
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* PDF Viewer Placeholder */}
+        <div className="flex-1 bg-slate-100 dark:bg-slate-900 overflow-y-auto p-8 flex justify-center">
+          <div className="w-full max-w-3xl bg-white dark:bg-slate-800 shadow-lg min-h-[1500px] p-12 space-y-6">
+             {/* Mock PDF Content */}
+             <h1 className="text-3xl font-bold mb-4">{paper.title}</h1>
+             <div className="text-sm text-slate-500 mb-8">{paper.authors} • {paper.venue}</div>
+             
+             <h3 className="text-xl font-bold uppercase tracking-wider text-slate-400 mb-2">Abstract</h3>
+             <p className="text-lg leading-relaxed font-serif mb-8">{paper.abstract}</p>
+             
+             <h3 className="text-xl font-bold uppercase tracking-wider text-slate-400 mb-2">1. Introduction</h3>
+             <p className="text-lg leading-relaxed font-serif text-slate-700 dark:text-slate-300">
+               The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms.
+             </p>
+             <div className="p-4 my-6 bg-blue-50 dark:bg-slate-700/30 border-l-4 border-blue-500 text-slate-700 dark:text-slate-300 italic">
+                "Self-attention, sometimes called intra-attention, is an attention mechanism relating different positions of a single sequence in order to compute a representation of the sequence."
+             </div>
+             <p className="text-lg leading-relaxed font-serif text-slate-700 dark:text-slate-300">
+               Recurrent neural networks, long short-term memory and gated recurrent neural networks in particular, have been firmly established as state of the art approaches in sequence modeling and transduction problems such as language modeling and machine translation.
+             </p>
+          </div>
+        </div>
+
+        {/* Sidebar: Evidence Map & Tools */}
+        <aside className="w-96 bg-white dark:bg-slate-950 border-l border-slate-200 dark:border-slate-800 flex flex-col">
+          <div className="flex border-b border-slate-200 dark:border-slate-800">
+            <button 
+              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'evidence' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+              onClick={() => setActiveTab('evidence')}
+            >
+              Evidence Map
+            </button>
+            <button 
+              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'qa' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+              onClick={() => setActiveTab('qa')}
+            >
+              Q&A
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            {activeTab === 'evidence' && (
+              <div className="space-y-4">
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  AI Synthesis
+                </div>
+                {MOCK_EVIDENCE.map((item) => (
+                  <div key={item.id} className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 hover:border-slate-300 transition-colors">
+                    <div className="flex items-center gap-2 mb-1">
+                       <span className={`w-2 h-2 rounded-full ${
+                         item.type === 'supporting' ? 'bg-emerald-500' : 
+                         item.type === 'conflicting' ? 'bg-red-500' : 'bg-blue-500'
+                       }`} />
+                       <span className="text-xs font-semibold capitalize text-slate-600 dark:text-slate-300">{item.type}</span>
+                    </div>
+                    <p className="text-sm text-slate-700 dark:text-slate-300 mb-2">{item.text}</p>
+                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                      <TrendingUp size={12} />
+                      <span>{item.votes} verifications</span>
+                    </div>
+                  </div>
+                ))}
+                <button className="w-full py-2 text-sm text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-md mt-4">
+                  Load More Evidence
+                </button>
+              </div>
+            )}
+            {activeTab === 'qa' && (
+              <div className="text-center py-10 text-slate-500">
+                <p className="text-sm mb-4">Ask a question to the community or the paper itself.</p>
+                <button className="px-4 py-2 bg-slate-100 rounded-md text-sm font-medium">Ask Question</button>
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+};
+
+const Notification = ({ message, visible }) => (
+  <div className={`fixed bottom-6 right-6 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 transition-all duration-500 transform ${visible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}>
+    <CheckCircle size={20} className="text-emerald-400" />
+    <span className="font-medium">{message}</span>
+  </div>
+);
+
+// Main App Container
+export default function PaperTrailApp() {
+  // State
+  const [view, setView] = useState('dashboard'); // dashboard, feed, reader
+  const [activePaper, setActivePaper] = useState(null);
+  const [heatmapData, setHeatmapData] = useState(generateHeatmapData());
+  const [userStats, setUserStats] = useState({ rp: 1240, streak: 23, level: 12 });
+  const [papers, setPapers] = useState(MOCK_PAPERS);
+  const [notification, setNotification] = useState({ visible: false, message: '' });
+
+  // Actions
+  const showNotification = (msg) => {
+    setNotification({ visible: true, message: msg });
+    setTimeout(() => setNotification({ visible: false, message: '' }), 3000);
+  };
+
+  const handleOpenPaper = (paper) => {
+    setActivePaper(paper);
+    setView('reader');
+  };
+
+  const handleCloseReader = () => {
+    setActivePaper(null);
+    setView('dashboard');
+  };
+
+  const handleSavePaper = (id) => {
+    const paper = papers.find(p => p.id === id);
+    if (!paper.isSaved) {
+      const updatedPapers = papers.map(p => p.id === id ? { ...p, isSaved: true } : p);
+      setPapers(updatedPapers);
+      updateRP(3); // +3 RP for saving
+      showNotification('Paper saved to library! +3 RP');
+    }
+  };
+
+  const handleAnnotate = () => {
+    updateRP(5); // +5 RP for annotation
+    showNotification('Annotation created! +5 RP');
+  };
+
+  const updateRP = (amount) => {
+    setUserStats(prev => ({ ...prev, rp: prev.rp + amount }));
+    // Update today's heatmap cell
+    const newHeatmap = [...heatmapData];
+    const todayIndex = newHeatmap.length - 1;
+    newHeatmap[todayIndex].rp += amount;
+    
+    // Update tier based on new RP
+    if (newHeatmap[todayIndex].rp > 25) newHeatmap[todayIndex].tier = 3;
+    else if (newHeatmap[todayIndex].rp > 10) newHeatmap[todayIndex].tier = 2;
+    else if (newHeatmap[todayIndex].rp > 0) newHeatmap[todayIndex].tier = 1;
+    
+    setHeatmapData(newHeatmap);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans">
+      {/* Sidebar Navigation */}
+      <aside className="fixed left-0 top-0 bottom-0 w-20 lg:w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-40">
+        <div className="h-16 flex items-center justify-center lg:justify-start lg:px-6 border-b border-slate-200 dark:border-slate-800">
+           <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center text-white font-bold">P</div>
+           <span className="hidden lg:block ml-3 font-bold text-xl tracking-tight">PaperTrail</span>
+        </div>
+        
+        <nav className="flex-1 py-6 space-y-1 px-3">
+           {[
+             { id: 'dashboard', label: 'Research Log', icon: Layers },
+             { id: 'feed', label: 'Smart Feed', icon: Activity },
+             { id: 'library', label: 'Library', icon: BookOpen },
+             { id: 'labs', label: 'Labs & Clubs', icon: Users },
+           ].map((item) => (
+             <button 
+               key={item.id}
+               onClick={() => setView(item.id)}
+               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${view === item.id ? 'bg-emerald-50 dark:bg-slate-800 text-emerald-600' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+             >
+               <item.icon size={20} />
+               <span className="hidden lg:block font-medium">{item.label}</span>
+             </button>
+           ))}
+        </nav>
+
+        {/* User Stats Footer */}
+        <div className="p-4 border-t border-slate-200 dark:border-slate-800">
+           <div className="bg-slate-100 dark:bg-slate-800 rounded-xl p-3">
+              <div className="flex items-center gap-3 mb-2">
+                 <div className="w-8 h-8 bg-indigo-500 rounded-full flex items-center justify-center text-white text-xs font-bold">DA</div>
+                 <div className="hidden lg:block">
+                    <div className="text-sm font-bold">Dr. Amina</div>
+                    <div className="text-xs text-slate-500">Level {userStats.level} Scholar</div>
+                 </div>
+              </div>
+              <div className="flex justify-between items-center text-xs lg:px-1">
+                 <div className="flex items-center gap-1 text-orange-500 font-bold">
+                    <Flame size={14} fill="currentColor" />
+                    <span>{userStats.streak}</span>
+                 </div>
+                 <div className="font-bold text-emerald-600">
+                    {userStats.rp} RP
+                 </div>
+              </div>
+           </div>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="pl-20 lg:pl-64 min-h-screen">
+        
+        {/* Top Bar */}
+        <header className="h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-8">
+           <h1 className="text-xl font-bold capitalize">
+             {view === 'dashboard' ? 'Your Research Log' : view === 'feed' ? 'Discovery Feed' : view}
+           </h1>
+           <div className="flex items-center gap-4">
+              <div className="relative hidden md:block">
+                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                 <input 
+                   type="text" 
+                   placeholder="Search papers, labs, topics..." 
+                   className="bg-slate-100 dark:bg-slate-800 rounded-full pl-10 pr-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 w-64"
+                 />
+              </div>
+              <button className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                 <Menu size={16} />
+              </button>
+           </div>
+        </header>
+
+        {/* Content Switcher */}
+        <div className="p-8 max-w-6xl mx-auto space-y-8">
+           
+           {/* DASHBOARD VIEW */}
+           {view === 'dashboard' && (
+             <>
+               <section>
+                 <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-bold flex items-center gap-2">
+                      <Activity className="text-emerald-500" size={20} />
+                      Activity Log
+                    </h2>
+                    <select className="text-sm bg-transparent text-slate-500 border-none outline-none cursor-pointer">
+                       <option>Last Year</option>
+                       <option>Last Month</option>
+                    </select>
+                 </div>
+                 <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <Heatmap data={heatmapData} />
+                 </div>
+               </section>
+
+               <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                     <h2 className="text-lg font-bold mb-4">Continue Reading</h2>
+                     <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                        {papers.filter(p => p.isSaved).slice(0,2).map(paper => (
+                           <div key={paper.id} className="p-4 border-b border-slate-100 dark:border-slate-800 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer" onClick={() => handleOpenPaper(paper)}>
+                              <h4 className="font-bold text-sm mb-1">{paper.title}</h4>
+                              <div className="flex justify-between text-xs text-slate-500">
+                                 <span>{paper.venue}</span>
+                                 <span className="text-emerald-600">Resume</span>
+                              </div>
+                           </div>
+                        ))}
+                        {papers.filter(p => p.isSaved).length === 0 && (
+                          <div className="p-8 text-center text-slate-500 text-sm">
+                            No saved papers yet. Go to the feed to start!
+                          </div>
+                        )}
+                     </div>
+                  </div>
+                  <div>
+                     <h2 className="text-lg font-bold mb-4">Your Achievements</h2>
+                     <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex gap-4">
+                        <div className="flex flex-col items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg min-w-[100px]">
+                           <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center">
+                              <Flame size={20} />
+                           </div>
+                           <span className="text-xs font-bold">Streak Master</span>
+                        </div>
+                        <div className="flex flex-col items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg min-w-[100px]">
+                           <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center">
+                              <Award size={20} />
+                           </div>
+                           <span className="text-xs font-bold">Early Adopter</span>
+                        </div>
+                     </div>
+                  </div>
+               </section>
+             </>
+           )}
+
+           {/* FEED VIEW */}
+           {(view === 'feed' || view === 'library') && (
+             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2 space-y-6">
+                   {papers.map(paper => (
+                      <PaperCard 
+                        key={paper.id} 
+                        paper={paper} 
+                        onOpen={handleOpenPaper} 
+                        onSave={handleSavePaper}
+                      />
+                   ))}
+                </div>
+                <aside className="space-y-6">
+                   <div className="bg-indigo-600 rounded-xl p-6 text-white">
+                      <h3 className="font-bold text-lg mb-2">Join a Reading Room</h3>
+                      <p className="text-indigo-100 text-sm mb-4">Live discussion on "CRISPR Safety" starting in 30 mins.</p>
+                      <button className="w-full py-2 bg-white text-indigo-600 font-bold rounded-lg text-sm hover:bg-indigo-50 transition-colors">
+                         Join Now (+25 RP)
+                      </button>
+                   </div>
+                </aside>
+             </div>
+           )}
+        </div>
+      </main>
+
+      {/* Render View Modal */}
+      {view === 'reader' && activePaper && (
+        <Reader 
+          paper={activePaper} 
+          onClose={handleCloseReader}
+          onAnnotate={handleAnnotate} 
+        />
+      )}
+
+      {/* Notification Toast */}
+      <Notification message={notification.message} visible={notification.visible} />
+    </div>
+  );
+}
+
